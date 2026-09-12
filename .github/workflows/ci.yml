@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml syntax
+        run: docker compose config > /dev/null
+
+      - name: Lint Dockerfile with hadolint (extra credit)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+        continue-on-error: true
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start environment
+        run: docker compose up -d
+
+      - name: Wait for services to report healthy
+        run: |
+          echo "Waiting for all services to become healthy..."
+          for i in $(seq 1 30); do
+            unhealthy=$(docker compose ps --format '{{.Name}} {{.Health}}' | grep -v "healthy" | grep -v "^$" || true)
+            if [ -z "$unhealthy" ]; then
+              echo "All services healthy."
+              break
+            fi
+            echo "Attempt $i/30: still waiting..."
+            sleep 3
+          done
+          docker compose ps
+
+      - name: Run validate.sh
+        run: |
+          chmod +x validate.sh
+          ./validate.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
