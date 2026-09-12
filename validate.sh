@@ -111,17 +111,19 @@ else
 fi
 
 echo "=== 7. Checking network isolation: prohibited host ports ==="
-check_port_closed() {
-    local port="$1"
-    local label="$2"
-    if curl -s --max-time 2 "http://localhost:$port" >/dev/null 2>&1; then
-        fail "$label on host port $port is reachable but should NOT be published"
-    else
-        pass "$label on host port $port is correctly not reachable from host"
-    fi
-}
-check_port_closed 5432 "PostgreSQL"
-check_port_closed 6379 "Redis"
+pg_ports=$(docker inspect postgres --format '{{json .NetworkSettings.Ports}}' 2>/dev/null)
+if echo "$pg_ports" | grep -q '"HostPort"'; then
+    fail "PostgreSQL port is published to host: $pg_ports"
+else
+    pass "PostgreSQL is correctly not published to host"
+fi
+
+redis_ports=$(docker inspect redis --format '{{json .NetworkSettings.Ports}}' 2>/dev/null)
+if echo "$redis_ports" | grep -q '"HostPort"'; then
+    fail "Redis port is published to host: $redis_ports"
+else
+    pass "Redis is correctly not published to host"
+fi
 
 echo ""
 echo "=== SUMMARY ==="
