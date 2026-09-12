@@ -26,11 +26,9 @@ services:
       POSTGRES_USER: barq_app
       POSTGRES_DB: barq_tasks
       POSTGRES_PASSWORD: BarqLabOnly_7qN2vK8c
-    ports: ["127.0.0.1:15432:5432"]
     volumes:
-      - postgres-data:/var/lib/postgresql/backup
+      - postgres-data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    tmpfs: [/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U barq_app -d barq_tasks"]
       interval: 3s
@@ -42,14 +40,12 @@ services:
     image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     container_name: redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports: ["127.0.0.1:16379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
       timeout: 2s
       retries: 5
     networks: [backend]
-
   app-01:
     <<: *app
     container_name: app-01
@@ -84,12 +80,14 @@ services:
         condition: service_healthy
       app-02:
         condition: service_healthy
-    networks: [frontend, backend]
+    networks: [frontend]
 
 networks:
   frontend:
   backend:
     internal: true
+
+
 
 volumes:
   postgres-data:
