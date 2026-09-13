@@ -153,3 +153,23 @@ Deleted the old volume and rebuilt from zero to prove the fix: docker compose do
 
 ### Lesson Learned
 A named volume being present and attached does not by itself prove persistence works. The mount target must match the exact path the application writes to. This was the most critical bug in the task: every backup would have silently backed up nothing without this fix.
+
+## Issue 5: docker compose port unreliable for port-isolation check
+
+### Symptom
+validate.sh checked network isolation using docker compose port postgres 5432 and treated a zero exit code as "port is published". This always returned PASS even after published ports were removed from docker-compose.yml, and also returned PASS with output "invalid IP:0" when tested manually - meaning the check was not actually testing anything meaningful.
+
+### Investigation
+Ran the command directly: docker compose port postgres 5432, result: invalid IP:0, exit code: 0. The command returns exit code 0 regardless of whether a port is actually published, so checking only the exit code cannot distinguish published from not-published.
+
+### Root Cause
+docker compose port is not a reliable tool for this check; it does not fail (non-zero exit) when no port mapping exists for the given container port.
+
+### Fix
+Switched to inspecting the container's actual network settings directly: docker inspect postgres --format '{{json .NetworkSettings.Ports}}'. An unpublished port returns {"5432/tcp":null} with no HostPort key; a published port returns a HostPort entry. The check now greps for the presence of "HostPort" in the JSON output.
+
+### Retest Evidence
+docker inspect postgres shows {"5432/tcp":null} and docker inspect redis shows {"6379/tcp":null}. validate.sh now correctly reports PASS for both port-isolation checks based on real inspection data, not on a wrapper command's exit code.
+
+### Lesson Learned
+A helper command returning exit code 0 does not always mean success in the way it might be assumed. Always verify what a command's exit code and output actually represent before relying on it in a validation script, ideally against ground-truth data such as docker inspect rather than a higher-level wrapper.
