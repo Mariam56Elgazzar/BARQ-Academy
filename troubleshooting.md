@@ -193,3 +193,35 @@ Next CI run (commit e025674, "fix: remove UTF-8 BOM from nginx.conf") passed. Al
 
 ### Lesson Learned
 A fix working locally is not evidence that it is deployed anywhere else. Before treating an issue as closed, always confirm with git status and git log that the fix is actually committed, and with git push / a fresh CI run that it is actually running in the target environment - not just present on the local filesystem.
+
+## Backup/Restore recovery proof (destructive test)
+
+**Goal:** prove pg_dump/pg_restore actually recovers real data loss, not just container recreation.
+
+**Commands and evidence:**
+
+1. Create marker record:
+   `curl -s -X POST http://localhost:8080/records -H "Content-Type: application/json" -d '{"title":"backup-restore-marker"}'`
+   → `{"record":{"id":10,"title":"backup-restore-marker"},...}`
+
+2. Take backup:
+   `./backup.sh`
+   → `[PASS] Backup saved: backups/barq_backup_20260913_213430.dump`
+
+3. Simulate real data loss (direct SQL DELETE, not a restart):
+   `docker exec postgres psql -U barq_app -d barq_tasks -c "DELETE FROM records WHERE title='backup-restore-marker';"`
+   → `DELETE 1`
+
+4. Confirm record is gone:
+   `curl -s http://localhost:8080/records`
+   → id:10 absent from records list
+
+5. Restore from backup:
+   `./restore.sh barq_backup_20260913_213430.dump`
+   → `[PASS] Restore completed from backups/barq_backup_20260913_213430.dump`
+
+6. Confirm record is back:
+   `curl -s http://localhost:8080/records`
+   → `{"id":10,"title":"backup-restore-marker"}` present again
+
+**Conclusion:** backup.sh/restore.sh recover real data loss (SQL DELETE), not just container-recreation persistence — proven end-to-end with reproducible commands.
