@@ -71,5 +71,4 @@ Correlated failed/successful pair: see item 8 above.
   cannot be fully proven without client-side instrumentation.
 - Resource exhaustion (CPU/memory) as a contributing cause is not observable without
   docker stats captured at the time.
-## Timeline and correlated examples
-## Conclusions and limits
+
