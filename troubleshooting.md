@@ -173,3 +173,23 @@ docker inspect postgres shows {"5432/tcp":null} and docker inspect redis shows {
 
 ### Lesson Learned
 A helper command returning exit code 0 does not always mean success in the way it might be assumed. Always verify what a command's exit code and output actually represent before relying on it in a validation script, ideally against ground-truth data such as docker inspect rather than a higher-level wrapper.
+
+## Issue 6: First CI run failed - nginx BOM error resurfaced
+
+### Symptom
+The first GitHub Actions run (workflow file just added) failed after about 1m15s. The annotation showed "Process completed with exit code 1" on the validate-environment job. The environment worked correctly on the local machine at the same point in time.
+
+### Investigation
+Opened the failed run's "Show logs on failure" step (docker compose logs). Found the exact same error as Issue 1: nginx: [emerg] unknown directive "worker_processes" in /etc/nginx/nginx.conf:1. Postgres, redis, app-01 and app-02 all started and logged healthy traffic; only nginx crashed, which meant port 8080 was never listening and every curl-based check in validate.sh failed with "Couldn't connect to server".
+
+### Root Cause
+The BOM fix from Issue 1 had been made and verified locally, but git status at the time showed docker-compose.yml still had uncommitted changes, and the nginx.conf fix itself had not yet been pushed to GitHub when the first CI run was triggered by an earlier push. CI was running against an older version of nginx.conf that still contained the BOM.
+
+### Fix
+Verified locally that nginx.conf had no BOM (head -c 10 nginx/nginx.conf | xxd showed no leading bytes), then committed and pushed both the nginx.conf fix and the pending docker-compose.yml persistence fix (Issue 4) together.
+
+### Retest Evidence
+Next CI run (commit e025674, "fix: remove UTF-8 BOM from nginx.conf") passed. All subsequent runs on main have passed (see Actions tab: commits db677b3, c4d81ee, 8c57726, d36cdba, 285158e all green).
+
+### Lesson Learned
+A fix working locally is not evidence that it is deployed anywhere else. Before treating an issue as closed, always confirm with git status and git log that the fix is actually committed, and with git push / a fresh CI run that it is actually running in the target environment - not just present on the local filesystem.
