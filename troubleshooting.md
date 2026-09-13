@@ -85,3 +85,71 @@ validate.sh now samples 20 requests and asserts at least 2 distinct instance IDs
 
 ### Lesson Learned
 Small manual samples can produce misleading conclusions. Automated checks should use a sample size large enough to be meaningful, and should assert the property that actually matters (both instances participate) rather than an exact ratio.
+
+## Issue 3: nginx had unintended access to the backend network
+
+### Symptom
+While verifying network isolation requirements, docker network inspect showed nginx as a member of the backend network, in addition to frontend. This violated the requirement that NGINX must not have direct access to PostgreSQL or Redis.
+
+### Investigation
+docker network inspect barq-assessment_backend --format '{{range .Containers}}{{.Name}} {{end}}'
+Output included nginx alongside postgres, redis, app-01, app-02 - nginx should only be on frontend.
+
+### Failed Attempt
+First attempt: removed nginx from the backend network list in docker-compose.yml, but a copy-paste error accidentally deleted the entire backend network definition block from the file, breaking docker compose config entirely (backend network no longer existed at all).
+
+### Second Issue Uncovered
+After restoring the backend network definition and correctly scoping nginx to frontend only, port 8080 stopped being published on the host. Investigation showed the frontend network had internal: true set, which blocks host port publishing entirely for any service on that network - not just inter-container isolation.
+
+### Root Cause
+Two separate misconfigurations: (1) nginx was listed under both frontend and backend networks instead of frontend only, and (2) internal: true was mistakenly applied to frontend instead of backend, which silently blocks host port publishing rather than producing an obvious error.
+
+### Fix
+- nginx: networks: [frontend] only
+- frontend network: no internal flag (must allow host port publishing)
+- backend network: internal: true (blocks external/host access, allows only inter-container traffic within backend)
+
+### Retest Evidence
+docker network inspect barq-assessment_backend --format '{{range .Containers}}{{.Name}} {{end}}'
+-> postgres app-01 redis app-02  (nginx correctly absent)
+
+docker network inspect barq-assessment_frontend --format '{{range .Containers}}{{.Name}} {{end}}'
+-> app-01 nginx app-02  (correct membership)
+
+curl http://localhost:8080/health returned 200 (port publishing restored).
+
+### Lesson Learned
+internal: true has host-port-publishing side effects beyond inter-container isolation; it must be placed on the correct network only (backend, not frontend). Also: always run docker compose config after any manual YAML edit to catch structural damage from copy-paste mistakes before testing runtime behavior.
+
+## Issue 4: Records did not survive container recreation (critical)
+
+### Symptom
+Created a record via POST /records, then ran docker compose down followed by docker compose up -d (no -v flag, volume preserved). The record was gone from GET /records after restart, even though a named volume postgres-data existed and was attached to the postgres container.
+
+### Investigation
+Inspected the actual mounts on the running container:
+
+docker inspect postgres --format '{{json .Mounts}}'
+
+Result showed the named volume postgres-data was mounted at /var/lib/postgresql/backup - not /var/lib/postgresql/data, which is PostgreSQL's actual data directory (PGDATA).
+
+Also found in docker-compose.yml:
+tmpfs: [/var/lib/postgresql/data]
+
+This meant the real PGDATA path was mounted as tmpfs - RAM-backed, non-persistent storage - while the durable named volume was attached to an unused path that PostgreSQL never writes to.
+
+### Root Cause
+Two compounding misconfigurations in the postgres service definition:
+1. tmpfs: [/var/lib/postgresql/data] made the real data directory non-persistent by design (wiped on every container stop).
+2. volumes: - postgres-data:/var/lib/postgresql/backup pointed the durable volume at a path PostgreSQL does not use for its data files.
+
+Every record was actually being written correctly to disk, but to tmpfs (RAM), which is discarded whenever the container stops - regardless of any volume configuration.
+
+### Fix
+Removed the tmpfs override entirely. Corrected the volume target to postgres-data:/var/lib/postgresql/data. Also removed unrelated but disqualifying issues found in the same block: published ports on postgres (15432) and redis (16379), which violated the "do not publish app, PostgreSQL or Redis ports" requirement.
+
+### Retest Evidence
+Deleted the old volume and rebuilt from zero to prove the fix: docker compose down, docker volume rm barq-assessment_postgres-data, docker compose up -d --build. Created record id 3 "persistence-test". Ran docker compose down then docker compose up -d twice in a row. The record survived both full container-recreation cycles.
+
+### Lesson Learned
+A named volume being present and attached does not by itself prove persistence works. The mount target must match the exact path the application writes to. This was the most critical bug in the task: every backup would have silently backed up nothing without this fix.
