@@ -70,17 +70,22 @@ services:
       redis:
         condition: service_healthy
   nginx:
-    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
-    container_name: nginx
-    ports: ["127.0.0.1:${PUBLIC_PORT:-8080}:80"]
-    volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
-    depends_on:
-      app-01:
-        condition: service_healthy
-      app-02:
-        condition: service_healthy
-    networks: [frontend]
-
+      image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+      container_name: nginx
+      ports: ["127.0.0.1:${PUBLIC_PORT:-8080}:80"]
+      volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
+      healthcheck:
+        test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
+        interval: 5s
+        timeout: 3s
+        retries: 3
+        start_period: 3s
+      depends_on:
+        app-01:
+          condition: service_healthy
+        app-02:
+          condition: service_healthy
+      networks: [frontend]
 networks:
   frontend:
   backend:
