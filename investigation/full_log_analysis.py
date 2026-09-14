@@ -154,7 +154,7 @@ print("Distinguishing evidence: Connection refused => TCP-level failure BEFORE a
 print("\n=== Q10: what logs don't prove ===")
 print("- Root cause INSIDE the app process (e.g. why Postgres/Redis was briefly unreachable) is not "
       "visible from these logs alone — would need Postgres/Redis's own logs at that timestamp.")
-print("- Whether the 3 duplicate request_ids were caused by client-side retries vs NGINX-side retries "
+print("- Whether the 5 duplicate request_ids were caused by client-side retries vs NGINX-side retries "
       "cannot be fully proven without client-side instrumentation.")
 print("- Resource exhaustion (CPU/memory) as a contributing cause is not observable without host/container "
       "metrics (docker stats) captured at the time.")
