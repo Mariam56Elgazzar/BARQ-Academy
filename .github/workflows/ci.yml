@@ -43,8 +43,11 @@ jobs:
 
       - name: Run validate.sh
         run: |
+          set -a
+          source .env
+          set +a
           chmod +x validate.sh
-          ./validate.sh
+          BASE_URL="http://localhost:${PUBLIC_PORT:-8080}" ./validate.sh
 
       - name: Show logs on failure
         if: failure()
